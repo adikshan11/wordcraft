@@ -1,12 +1,12 @@
+# On a throwaway branch of the fork only: ci.yml with its trigger changed, since the fork's own
+# default branch hasn't got this workflow registered. Not part of the pull request.
 name: CI
 
 # Quality gates for every push to main and every pull request (`cargo xtask ci`), through the
 # suite's shared gate workflow in craft-common-actions.
 on:
   push:
-    branches: [main]
-  pull_request:
-  workflow_dispatch:
+    branches: [ci-gate-names]
 
 permissions:
   contents: read
