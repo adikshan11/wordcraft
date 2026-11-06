@@ -1,0 +1,32 @@
+name: Throwaway Windows check
+
+# On a throwaway branch of the fork only. Not part of the pull request.
+on:
+  push:
+    branches: ["ci-check-*"]
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 170
+    env:
+      RUST_BACKTRACE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust 1.95
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --no-self-update
+          rustup default 1.95.0
+      - name: The roots tests, with their output
+        shell: bash
+        run: cargo test --locked -p "${APP}-engine" --lib file_access -- --nocapture --test-threads=1
+        env:
+          APP: ${{ github.event.repository.name }}
+      - name: Without each fix, its tests have to fail
+        shell: bash
+        run: python .github/throwaway/mutate.py "${APP}-engine"
+        env:
+          APP: ${{ github.event.repository.name }}
