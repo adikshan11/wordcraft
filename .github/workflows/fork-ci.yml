@@ -1,0 +1,77 @@
+name: Fork CI
+
+# Scratch branch of the fork only. Not part of the pull request.
+on:
+  push:
+    branches: ["ci-scratch-**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PKG: wordcraft-engine
+  FILTER: file_access
+  FILE: crates/engine/src/file_access.rs
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq pkg-config libasound2-dev libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev libfontconfig1-dev libfreetype-dev libdbus-1-dev
+      - name: Stable Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal -c rustfmt -c clippy --no-self-update
+          rustup default stable
+          rustc -V
+      - name: fmt
+        shell: bash
+        run: cargo fmt --all -- --check
+      - name: clippy, all targets
+        if: always()
+        shell: bash
+        run: cargo clippy --locked -p "$PKG" --all-targets --no-deps -- -D warnings
+      - name: the file access tests, with their output
+        if: always()
+        shell: bash
+        run: cargo test --locked -p "$PKG" --lib "$FILTER" -- --nocapture --test-threads=1
+  without-the-fix:
+    # With the refusal undone, the new tests have to fail. On Windows they would look the paths up,
+    # which is what the fix prevents (the address is TEST-NET-3, where nothing answers).
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq pkg-config libasound2-dev libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev libfontconfig1-dev libfreetype-dev libdbus-1-dev
+      - name: Stable Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+      - name: Undo the fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          p = os.environ["FILE"]
+          t = open(p, encoding="utf8").read()
+          a, b = "    let prefix = OffDisk::of(path)?;\n", "    let prefix = OffDisk::of(path)?;\n    if prefix.refusal().is_empty() || !prefix.refusal().is_empty() {\n        return None;\n    }\n"
+          assert t.count(a) == 1, "anchor"
+          open(p, "w", encoding="utf8").write(t.replace(a, b, 1))
+          PY
+          git diff --stat
+      - name: The new tests fail without it
+        shell: bash
+        run: |
+          if cargo test --locked -p "$PKG" --lib network_path -- --test-threads=1; then echo "the tests passed without the fix"; exit 1; fi
