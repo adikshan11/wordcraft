@@ -1,0 +1,46 @@
+name: Fork CI
+
+# Scratch branch of the fork only. Not part of the pull request.
+on:
+  push:
+    branches: ["ci-scratch-**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PKG: wordcraft-engine
+  FILTER: file_access
+  FILE: crates/engine/src/file_access.rs
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq pkg-config libasound2-dev libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev libfontconfig1-dev libfreetype-dev libdbus-1-dev
+      - name: Stable Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal -c rustfmt -c clippy --no-self-update
+          rustup default stable
+          rustc -V
+      - name: fmt
+        shell: bash
+        run: cargo fmt --all -- --check
+      - name: clippy, all targets
+        if: always()
+        shell: bash
+        run: cargo clippy --locked -p "$PKG" --all-targets --no-deps -- -D warnings
+      - name: the file access tests, with their output
+        if: always()
+        shell: bash
+        run: cargo test --locked -p "$PKG" --lib "$FILTER" -- --nocapture --test-threads=1
